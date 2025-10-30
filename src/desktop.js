@@ -76,24 +76,7 @@ async function getApplicationsForDir(path) {
       continue;
     }
 
-    // const dup = new GLib.KeyFile();
-    // dup.load_from_bytes(contents, GLib.KeyFileFlags.NONE);
-    // try {
-    //   dup.remove_key(
-    //     GLib.KEY_FILE_DESKTOP_GROUP,
-    //     GLib.KEY_FILE_DESKTOP_KEY_EXEC,
-    //   );
-    // } catch {}
-    // try {
-    //   dup.remove_key(
-    //     GLib.KEY_FILE_DESKTOP_GROUP,
-    //     GLib.KEY_FILE_DESKTOP_KEY_TRY_EXEC,
-    //   );
-    // } catch {}
     const app = loadDesktopAppInfo(keyfile);
-
-    // const app = GioUnix.DesktopAppInfo.new_from_keyfile(dup);
-
     if (!app) {
       console.warn(`Could not load DesktopAppInfo from ${file.get_path()}`);
       continue;
@@ -195,13 +178,18 @@ export function loadDesktopAppInfo(keyFile) {
     return GioUnix.DesktopAppInfo.new_from_keyfile(keyFile);
   }
 
-  const Exec = keyFile.get_value(
-    GLib.KEY_FILE_DESKTOP_GROUP,
-    GLib.KEY_FILE_DESKTOP_KEY_EXEC,
-  );
+  let Exec;
+  // https://github.com/sonnyp/Junction/issues/193#issuecomment-3469064246
+  try {
+    Exec = keyFile.get_value(
+      GLib.KEY_FILE_DESKTOP_GROUP,
+      GLib.KEY_FILE_DESKTOP_KEY_EXEC,
+    );
+    // eslint-disable-next-line no-empty
+  } catch {}
   if (!Exec) return null;
 
-  if (Exec && !Exec.startsWith("flatpak-spawn")) {
+  if (!Exec.startsWith("flatpak-spawn")) {
     keyFile.set_value("Desktop Entry", "Exec", prefixCommandLineForHost(Exec));
   }
 
