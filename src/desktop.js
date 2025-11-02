@@ -70,13 +70,17 @@ async function getApplicationsForDir(path) {
     const [contents] = await file.load_contents_async(null);
     const keyfile = new GLib.KeyFile();
     const loaded = keyfile.load_from_bytes(contents, GLib.KeyFileFlags.NONE);
-
     if (!loaded) {
       console.warn(`Could not load KeyFile from ${file.get_path()}`);
       continue;
     }
 
-    const app = loadDesktopAppInfo(keyfile);
+    let app;
+    try {
+      app = loadDesktopAppInfo(keyfile);
+    } catch (err) {
+      console.error(err);
+    }
     if (!app) {
       console.warn(`Could not load DesktopAppInfo from ${file.get_path()}`);
       continue;
