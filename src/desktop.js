@@ -38,6 +38,7 @@ async function getApplicationsForDir(path) {
 
   let enumerator;
   try {
+    console.debug(`Scanning applications in: ${path}`);
     enumerator = await parent.enumerate_children_async(
       `${Gio.FILE_ATTRIBUTE_STANDARD_NAME},${Gio.FILE_ATTRIBUTE_STANDARD_IS_HIDDEN},${Gio.FILE_ATTRIBUTE_STANDARD_TYPE}`,
       Gio.FileQueryInfoFlags.FOLLOW_SYMLINKS,
@@ -45,10 +46,20 @@ async function getApplicationsForDir(path) {
       null,
     );
   } catch (err) {
-    if (err.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.NOT_FOUND)) return apps;
-    if (err.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.NOT_DIRECTORY))
+    if (err.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.NOT_FOUND)) {
+      console.debug(`Applications directory not found: ${path}`);
       return apps;
-    throw err;
+    }
+    if (err.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.NOT_DIRECTORY)) {
+      console.debug(`Not a directory: ${path}`);
+      return apps;
+    }
+    if (err.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.PERMISSION_DENIED)) {
+      console.warn(`Permission denied accessing: ${path}`);
+      return apps;
+    }
+    console.error(`Error scanning applications in ${path}:`, err.message);
+    return apps;
   }
 
   for await (const file_info of enumerator) {
@@ -67,39 +78,46 @@ async function getApplicationsForDir(path) {
 
     // Alternatively
     const file = enumerator.get_child(file_info);
-    const [contents] = await file.load_contents_async(null);
-    const keyfile = new GLib.KeyFile();
-    const loaded = keyfile.load_from_bytes(contents, GLib.KeyFileFlags.NONE);
-    if (!loaded) {
-      console.warn(`Could not load KeyFile from ${file.get_path()}`);
-      continue;
-    }
-
-    let app;
     try {
-      app = loadDesktopAppInfo(keyfile);
+      const [contents] = await file.load_contents_async(null);
+      const keyfile = new GLib.KeyFile();
+      const loaded = keyfile.load_from_bytes(contents, GLib.KeyFileFlags.NONE);
+      if (!loaded) {
+        console.warn(`Could not load KeyFile from ${file.get_path()}`);
+        continue;
+      }
+
+      let app;
+      try {
+        app = loadDesktopAppInfo(keyfile);
+      } catch (err) {
+        console.error(err);
+      }
+      if (!app) {
+        console.warn(`Could not load DesktopAppInfo from ${file.get_path()}`);
+        continue;
+      }
+
+      if (app.get_nodisplay()) continue;
+      if (excluded_apps.includes(app.junction_id)) continue;
+
+      const mime = app.get_string_list(GLib.KEY_FILE_DESKTOP_KEY_MIME_TYPE);
+      if (mime.length === 0) continue;
+
+      // FIXME
+      app.junction_id = file_info.get_name(); // no get_id() withn desktopappinfo built from keyfile
+      app.junction_keyfile = keyfile; // no way to load keyfile from desktopappinfo without reading the file again
+      app.junction_filename = file.get_path(); // no get_filename() with desktopappinfo built from keyfile
+
+      apps.push(app);
+      console.debug(`Loaded application: ${app.get_name()} from ${file.get_path()}`);
     } catch (err) {
-      console.error(err);
-    }
-    if (!app) {
-      console.warn(`Could not load DesktopAppInfo from ${file.get_path()}`);
+      console.warn(`Error processing ${file.get_path()}:`, err.message);
       continue;
     }
-
-    if (app.get_nodisplay()) continue;
-    if (excluded_apps.includes(app.junction_id)) continue;
-
-    const mime = app.get_string_list(GLib.KEY_FILE_DESKTOP_KEY_MIME_TYPE);
-    if (mime.length === 0) continue;
-
-    // FIXME
-    app.junction_id = file_info.get_name(); // no get_id() withn desktopappinfo built from keyfile
-    app.junction_keyfile = keyfile; // no way to load keyfile from desktopappinfo without reading the file again
-    app.junction_filename = file.get_path(); // no get_filename() with desktopappinfo built from keyfile
-
-    apps.push(app);
   }
 
+  console.debug(`Found ${apps.length} applications in ${path}`);
   return apps;
 }
 
@@ -116,6 +134,8 @@ export async function loadApplications() {
   ];
 
   if (Xdp.Portal.running_under_sandbox()) {
+    console.debug("Running under sandbox");
+    // Try /run/host paths first (standard sandbox bind mount)
     paths.push(
       ...[
         "/run/host/usr/share/applications/",
@@ -123,7 +143,16 @@ export async function loadApplications() {
         "/run/host/var/lib/snapd/desktop/applications/",
       ],
     );
+    // Also try direct paths in case they're bound at their original location
+    paths.push(
+      ...[
+        "/usr/share/applications/",
+        "/var/lib/flatpak/exports/share/applications/",
+        "/var/lib/snapd/desktop/applications/",
+      ],
+    );
   } else {
+    console.debug("Not running under sandbox");
     paths.push(
       ...[
         "/usr/share/applications",
@@ -133,9 +162,12 @@ export async function loadApplications() {
     );
   }
 
+  console.debug(`Scanning application directories: ${paths.join(", ")}`);
   applications = (
     await Promise.all(paths.map((path) => getApplicationsForDir(path)))
   ).flat();
+
+  console.debug(`Total applications loaded: ${applications.length}`);
 
   // applications.forEach((app) => {
   //   if (!app) return;
@@ -198,7 +230,7 @@ export function loadDesktopAppInfo(keyFile) {
       GLib.KEY_FILE_DESKTOP_KEY_EXEC,
     );
     // eslint-disable-next-line no-empty
-  } catch {}
+  } catch { }
   if (!Exec) return null;
 
   if (!Exec.startsWith("flatpak-spawn")) {
@@ -211,7 +243,7 @@ export function loadDesktopAppInfo(keyFile) {
       GLib.KEY_FILE_DESKTOP_KEY_TRY_EXEC,
     );
     // eslint-disable-next-line no-empty
-  } catch {}
+  } catch { }
 
   return GioUnix.DesktopAppInfo.new_from_keyfile(keyFile);
 }
