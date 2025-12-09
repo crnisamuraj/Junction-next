@@ -162,6 +162,13 @@ export async function loadApplications() {
     );
   }
 
+  // Allow users to add custom paths via environment variable
+  const customPaths = GLib.getenv("JUNCTION_APPLICATION_PATHS");
+  if (customPaths) {
+    console.debug(`Adding custom application paths from JUNCTION_APPLICATION_PATHS: ${customPaths}`);
+    paths.push(...customPaths.split(":").filter((p) => p.length > 0));
+  }
+
   console.debug(`Scanning application directories: ${paths.join(", ")}`);
   applications = (
     await Promise.all(paths.map((path) => getApplicationsForDir(path)))
