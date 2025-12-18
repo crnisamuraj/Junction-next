@@ -8,6 +8,14 @@ bin_conf.set('datadir', datadir)
 bin_conf.set('pkgdatadir', pkgdatadir)
 
 configure_file(
+  input: 'junction',
+  output: 'junction',
+  configuration: bin_conf,
+  install: true,
+  install_dir: get_option('bindir')
+)
+
+configure_file(
   input: 'bin.js',
   output: 're.sonny.Junction',
   configuration: bin_conf,

@@ -125,12 +125,7 @@ export function getApplications(content_type) {
 
 console.log(
   Object.fromEntries(
-    [
-      "XDG_DATA_HOME",
-      "XDG_DATA_DIRS",
-      "HOST_XDG_DATA_HOME",
-      "HOST_XDG_DATA_DIRS",
-    ].map((key) => {
+    ["XDG_DATA_HOME", "XDG_DATA_DIRS"].map((key) => {
       return [key, GLib.getenv(key)];
     }),
   ),
